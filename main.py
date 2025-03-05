@@ -109,14 +109,15 @@ async def run_check_courses():
             try:
                 content = await check_course(course_code)
                 if content and "FULL" not in content:
-                    user = bot.get_user(user_id)
-                    if user:
-                        try:
+                    try:
+                        user = await bot.fetch_user(user_id)
+                        if user:
                             await user.send(
                                 f"Good news! Course `{course_code}` appears to have an open spot."
                             )
-                        except Exception as e:
-                            print(f"Failed to send message to user {user_id}: {e}")
+                    except Exception as e:
+                        print(f"Failed to send message to user {user_id}: {e}")
+
             except Exception as e:
                 print(f"Error checking course {course_code} for user {user_id}: {e}")
 
