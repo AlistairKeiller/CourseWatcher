@@ -1,13 +1,14 @@
-import discord
-from discord.ext import commands, tasks
-from discord import app_commands
+import argparse
 import asyncio
-import time
+import json
 import os
 import sys
-import argparse
-import json
+import tempfile
+import time
 
+import discord
+from discord import app_commands
+from discord.ext import commands, tasks
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 
@@ -43,6 +44,9 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 def check_course(course_code: str) -> str:
     options = webdriver.ChromeOptions()
     options.add_argument("--headless")
+    temp_dir = tempfile.mkdtemp()
+    options.add_argument(f"--user-data-dir={temp_dir}")
+
     driver = webdriver.Chrome(options=options)
     try:
         driver.get("https://www.reg.uci.edu/cgi-bin/WebSoc")
