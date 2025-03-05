@@ -114,35 +114,12 @@ async def check_courses():
                     if user:
                         try:
                             await user.send(
-                                f"Good news! Course `{course_code}` appears to have an open spot:\n```{content}```"
+                                f"Good news! Course `{course_code}` appears to have an open spot"
                             )
                         except Exception as e:
                             print(f"Failed to send message to user {user_id}: {e}")
             except Exception as e:
                 print(f"Error checking course {course_code} for user {user_id}: {e}")
-
-
-@bot.tree.command(name="check", description="Manually check a course's availability")
-@app_commands.describe(course_code="The course code to check")
-async def check(interaction: discord.Interaction, course_code: str):
-    await interaction.response.defer(ephemeral=True)
-    try:
-        content = await check_course(course_code)
-        if content:
-            await interaction.followup.send(
-                f"Check results for course `{course_code}`:\n```{content}```",
-                ephemeral=True,
-            )
-        else:
-            await interaction.followup.send(
-                f"Could not retrieve course info for `{course_code}`. It may be a non-existent course or an error occurred.",
-                ephemeral=True,
-            )
-    except Exception as e:
-        await interaction.followup.send(
-            f"An error occurred while checking course `{course_code}`: {e}",
-            ephemeral=True,
-        )
 
 
 @bot.event
