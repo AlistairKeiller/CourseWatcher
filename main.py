@@ -2,14 +2,11 @@ import argparse
 import json
 import os
 import sys
-import tempfile
-import time
 
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
-from selenium import webdriver
-from selenium.webdriver.common.by import By
+from playwright.async_api import async_playwright
 
 WATCHLIST_FILE = "watchlist.json"
 
@@ -40,30 +37,19 @@ intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 
-def check_course(course_code: str) -> str:
-    options = webdriver.ChromeOptions()
-    options.add_argument("--headless")
-    temp_dir = tempfile.mkdtemp()
-    options.add_argument(f"--user-data-dir={temp_dir}")
-
-    driver = webdriver.Chrome(options=options)
+async def check_course(course_code: str) -> str:
+    content = ""
     try:
-        driver.get("https://www.reg.uci.edu/cgi-bin/WebSoc")
-        course_input = driver.find_element(By.NAME, "CourseCodes")
-        course_input.clear()
-        course_input.send_keys(course_code)
-        submit_button = driver.find_element(
-            By.XPATH, '//input[@type="submit" and @value="Display Text Results"]'
-        )
-        submit_button.click()
-        time.sleep(3)
-        pre_element = driver.find_element(By.TAG_NAME, "pre")
-        content = pre_element.text
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page()
+            await page.goto("https://www.reg.uci.edu/cgi-bin/WebSoc")
+            await page.fill("input[name='CourseCodes']", course_code)
+            await page.click("input[type='submit'][value='Display Text Results']")
+            content = await page.inner_text("pre")
+            await browser.close()
     except Exception as e:
         print(f"Error while checking course {course_code}: {e}")
-        content = ""
-    finally:
-        driver.quit()
     return content
 
 
@@ -122,7 +108,7 @@ async def check_courses():
     for user_id, courses in user_watchlist.items():
         for course_code in courses:
             try:
-                content = check_course(course_code)
+                content = await check_course(course_code)
                 if content and "FULL" not in content:
                     user = bot.get_user(user_id)
                     if user:
@@ -141,7 +127,7 @@ async def check_courses():
 async def check(interaction: discord.Interaction, course_code: str):
     await interaction.response.defer(ephemeral=True)
     try:
-        content = check_course(course_code)
+        content = await check_course(course_code)
         if content:
             await interaction.followup.send(
                 f"Check results for course `{course_code}`:\n```{content}```",
