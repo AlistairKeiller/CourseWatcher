@@ -1,5 +1,4 @@
 import argparse
-import asyncio
 import json
 import os
 import sys
@@ -123,7 +122,7 @@ async def check_courses():
     for user_id, courses in user_watchlist.items():
         for course_code in courses:
             try:
-                content = await asyncio.to_thread(check_course, course_code)
+                content = check_course(course_code)
                 if content and "FULL" not in content:
                     user = bot.get_user(user_id)
                     if user:
@@ -142,7 +141,7 @@ async def check_courses():
 async def check(interaction: discord.Interaction, course_code: str):
     await interaction.response.defer(ephemeral=True)
     try:
-        content = await asyncio.to_thread(check_course, course_code)
+        content = check_course(course_code)
         if content:
             await interaction.followup.send(
                 f"Check results for course `{course_code}`:\n```{content}```",
