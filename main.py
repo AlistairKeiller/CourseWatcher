@@ -103,8 +103,7 @@ async def list_courses(interaction: discord.Interaction):
         )
 
 
-@tasks.loop(hours=1)
-async def check_courses():
+async def run_check_courses():
     for user_id, courses in user_watchlist.items():
         for course_code in courses:
             try:
@@ -114,12 +113,24 @@ async def check_courses():
                     if user:
                         try:
                             await user.send(
-                                f"Good news! Course `{course_code}` appears to have an open spot"
+                                f"Good news! Course `{course_code}` appears to have an open spot."
                             )
                         except Exception as e:
                             print(f"Failed to send message to user {user_id}: {e}")
             except Exception as e:
                 print(f"Error checking course {course_code} for user {user_id}: {e}")
+
+
+@tasks.loop(minutes=10)
+async def check_courses():
+    await run_check_courses()
+
+
+@bot.tree.command(name="check_courses", description="Manually trigger a course check")
+async def check_courses_command(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    await run_check_courses()
+    await interaction.followup.send("Course check completed.", ephemeral=True)
 
 
 @bot.event
