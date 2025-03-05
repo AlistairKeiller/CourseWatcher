@@ -136,10 +136,8 @@ async def check_courses():
 @bot.tree.command(name="check", description="Manually check a course's availability")
 @app_commands.describe(course_code="The course code to check")
 async def check(interaction: discord.Interaction, course_code: str):
-    # Defer the response to allow time for the Selenium check
     await interaction.response.defer(ephemeral=True)
     try:
-        # Run the check_course function in a separate thread
         content = await asyncio.to_thread(check_course, course_code)
         if content:
             await interaction.followup.send(
