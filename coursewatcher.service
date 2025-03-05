@@ -1,0 +1,13 @@
+[Unit]
+Description=CourseWatcher Service
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/CourseWatcher
+ExecStart=/home/ubuntu/.local/bin/uv run main.py --token INSERT_TOKEN_HERE
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
