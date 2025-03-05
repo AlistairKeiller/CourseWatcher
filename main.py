@@ -6,13 +6,35 @@ import time
 import os
 import sys
 import argparse
+import json
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 
+WATCHLIST_FILE = "watchlist.json"
+
+def load_watchlist() -> dict[int, set[str]]:
+    if os.path.exists(WATCHLIST_FILE):
+        try:
+            with open(WATCHLIST_FILE, "r") as f:
+                data = json.load(f)
+            return {int(k): set(v) for k, v in data.items()}
+        except Exception as e:
+            print(f"Error loading watchlist: {e}")
+    return {}
+
+def save_watchlist():
+    try:
+        serializable = {str(k): list(v) for k, v in user_watchlist.items()}
+        with open(WATCHLIST_FILE, "w") as f:
+            json.dump(serializable, f)
+    except Exception as e:
+        print(f"Error saving watchlist: {e}")
+
+user_watchlist: dict[int, set[str]] = load_watchlist()
+
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
-user_watchlist: dict[int, set[str]] = {}
 
 
 def check_course(course_code: str) -> str:
@@ -52,6 +74,7 @@ async def watch(interaction: discord.Interaction, course_code: str):
         )
     else:
         user_watchlist[user_id].add(course_code)
+        save_watchlist()
         await interaction.response.send_message(
             f"Added course `{course_code}` to your watch list.", ephemeral=True
         )
@@ -63,6 +86,7 @@ async def remove(interaction: discord.Interaction, course_code: str):
     user_id = interaction.user.id
     if user_id in user_watchlist and course_code in user_watchlist[user_id]:
         user_watchlist[user_id].remove(course_code)
+        save_watchlist()
         await interaction.response.send_message(
             f"Removed course `{course_code}` from your watch list.", ephemeral=True
         )
