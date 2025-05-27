@@ -12,33 +12,28 @@ WATCHLIST_FILE = "watchlist.json"
 
 
 def load_watchlist() -> dict[int, set[str]]:
-    if os.path.exists(WATCHLIST_FILE):
-        try:
-            with open(WATCHLIST_FILE, "r") as f:
-                data = json.load(f)
-            return {int(k): set(v) for k, v in data.items()}
-        except Exception as e:
+    try:
+        with open(WATCHLIST_FILE, "r") as f:
+            return {int(k): set(v) for k, v in json.load(f).items()}
+    except Exception as e:
+        if not isinstance(e, FileNotFoundError):
             print(f"Error loading watchlist: {e}")
-    return {}
+        return {}
 
 
 def save_watchlist():
     try:
-        serializable = {str(k): list(v) for k, v in user_watchlist.items()}
         with open(WATCHLIST_FILE, "w") as f:
-            json.dump(serializable, f)
+            json.dump({str(k): list(v) for k, v in user_watchlist.items()}, f)
     except Exception as e:
         print(f"Error saving watchlist: {e}")
 
 
 user_watchlist: dict[int, set[str]] = load_watchlist()
-
-intents = discord.Intents.default()
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="!", intents=discord.Intents.default())
 
 
 async def check_course(course_code: str) -> str:
-    content = ""
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
@@ -48,9 +43,10 @@ async def check_course(course_code: str) -> str:
             await page.click("input[type='submit'][value='Display Text Results']")
             content = await page.inner_text("pre")
             await browser.close()
+            return content
     except Exception as e:
         print(f"Error while checking course {course_code}: {e}")
-    return content
+        return ""
 
 
 @bot.tree.command(name="watch", description="Add a course to watch")
@@ -103,7 +99,8 @@ async def list_courses(interaction: discord.Interaction):
         )
 
 
-async def run_check_courses():
+@tasks.loop(minutes=1)
+async def check_courses():
     for user_id, courses in user_watchlist.items():
         for course_code in courses:
             try:
@@ -122,18 +119,6 @@ async def run_check_courses():
                 print(f"Error checking course {course_code} for user {user_id}: {e}")
 
 
-@tasks.loop(minutes=10)
-async def check_courses():
-    await run_check_courses()
-
-
-@bot.tree.command(name="check_courses", description="Manually trigger a course check")
-async def check_courses_command(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
-    await run_check_courses()
-    await interaction.followup.send("Course check completed.", ephemeral=True)
-
-
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
@@ -146,15 +131,12 @@ async def on_ready():
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Discord Bot Token")
-    parser.add_argument("--token", type=str, help="Discord Bot Token")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--token", type=str)
     args = parser.parse_args()
 
-    token = args.token or os.getenv("DISCORD_BOT_TOKEN")
-    if not token:
-        print(
-            "Error: Discord token not provided. Use --token or set the DISCORD_BOT_TOKEN environment variable."
-        )
+    if args.token:
+        bot.run(args.token)
+        print("Error: Discord token not provided. Use --token INSERT_TOKEN_HERE.")
+    else:
         sys.exit(1)
-
-    bot.run(token)
