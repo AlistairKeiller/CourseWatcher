@@ -24,9 +24,8 @@ user_ids: set[int] = load_users()
 products: set[str] = set()
 
 
-@tasks.loop(seconds=1)
+@tasks.loop(seconds=20)
 async def check_ippodo_global():
-    print("test")
     new_products: set[str] = set()
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -40,7 +39,6 @@ async def check_ippodo_global():
                 if name_elem:
                     name = await name_elem.inner_text()
                     new_products.add(name.strip())
-    print(f"new_products: {new_products}, products: {products}")
     if new_products != products:
         products.update(new_products)
         for user_id in user_ids:
