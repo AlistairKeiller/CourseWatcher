@@ -4,9 +4,9 @@ After=network.target
 
 [Service]
 Type=simple
-User=ubuntu
-WorkingDirectory=/home/ubuntu/CourseWatcher
-ExecStart=/home/ubuntu/.local/bin/uv run main.py --token INSERT_TOKEN_HERE
+User=alistair
+WorkingDirectory=/home/alistair/CourseWatcher
+ExecStart=/home/alistair/.local/bin/uv run main.py --token INSERT_TOKEN_HERE
 Restart=on-failure
 
 [Install]
