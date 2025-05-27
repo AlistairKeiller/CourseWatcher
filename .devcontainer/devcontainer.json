@@ -1,0 +1,5 @@
+{
+    "name": "Python",
+    "image": "mcr.microsoft.com/devcontainers/python:latest",
+    "postCreateCommand": "curl -LsSf https://astral.sh/uv/install.sh | sh && uv run playwright install && uv run playwright install-deps"
+}
