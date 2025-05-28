@@ -21,7 +21,17 @@ def save_users():
 
 bot = commands.Bot(command_prefix="!", intents=discord.Intents.default())
 user_ids: set[int] = load_users()
-products: set[str] = set()
+ippodo_global_products: set[str] = set()
+ippodo_products: set[str] = set()
+
+
+def format_product_message(site: str, products: set[str]) -> str:
+    if not products:
+        return f"On the {site} website, no products are currently in stock."
+    elif len(products) == 1:
+        return f"On the {site} website, product {next(iter(products))} is in stock."
+    else:
+        return f"On the {site} website, products {', '.join(products)} are in stock."
 
 
 @tasks.loop(seconds=20)
@@ -40,12 +50,45 @@ async def check_ippodo_global():
                     name = (await name_elem.inner_text()).strip()
                     link = (await name_elem.get_attribute("href") or "").strip()
                     new_products.add(f"[{name}]({link})" if link else name)
-    if new_products != products:
-        products.update(new_products)
+    if new_products != ippodo_global_products:
+        ippodo_global_products.clear()
+        ippodo_global_products.update(new_products)
         for user_id in user_ids:
             user = await bot.fetch_user(user_id)
             await user.send(
-                f"On the ippodo global website, product(s) {', '.join(products)} are in stock."
+                format_product_message(
+                    "[ippodo global](https://global.ippodo-tea.co.jp/collections/matcha)",
+                    ippodo_global_products,
+                )
+            )
+
+
+@tasks.loop(seconds=20)
+async def check_ippodo():
+    new_products: set[str] = set()
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
+        await page.goto("https://ippodotea.com/collections/matcha")
+        product_cards = await page.query_selector_all("div.matcha-card")
+        for card in product_cards:
+            button = await card.query_selector('button:has-text("Add to bag")')
+            if button:
+                name_elem = await card.query_selector(".product-title a")
+                if name_elem:
+                    name = (await name_elem.inner_text()).strip()
+                    link = (await name_elem.get_attribute("href") or "").strip()
+                    new_products.add(f"[{name}]({link})" if link else name)
+    if new_products != ippodo_products:
+        ippodo_products.clear()
+        ippodo_products.update(new_products)
+        for user_id in user_ids:
+            user = await bot.fetch_user(user_id)
+            await user.send(
+                format_product_message(
+                    "[ippodo](https://ippodotea.com/collections/matcha)",
+                    ippodo_products,
+                )
             )
 
 
