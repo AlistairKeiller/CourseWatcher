@@ -37,14 +37,15 @@ async def check_ippodo_global():
             if button:
                 name_elem = await card.query_selector(".m-product-card__name a")
                 if name_elem:
-                    name = await name_elem.inner_text()
-                    new_products.add(name.strip())
+                    name = (await name_elem.inner_text()).strip()
+                    link = (await name_elem.get_attribute("href") or "").strip()
+                    new_products.add(f"[{name}]({link})" if link else name)
     if new_products != products:
         products.update(new_products)
         for user_id in user_ids:
             user = await bot.fetch_user(user_id)
             await user.send(
-                f"On the ippodo global website, product(s) `{', '.join([product for product in products])}` are in stock."
+                f"On the ippodo global website, product(s) {', '.join(products)} are in stock."
             )
 
 
@@ -52,14 +53,18 @@ async def check_ippodo_global():
 async def subscribe(interaction: discord.Interaction) -> None:
     user_ids.add(interaction.user.id)
     save_users()
-    await interaction.response.send_message("You are now a subscribed user.", ephemeral=True)
+    await interaction.response.send_message(
+        "You are now a subscribed user.", ephemeral=True
+    )
 
 
 @bot.tree.command(name="unsubscribe", description="Stop being a subscribed user")
 async def unsubscribe(interaction: discord.Interaction) -> None:
     user_ids.remove(interaction.user.id)
     save_users()
-    await interaction.response.send_message("You are no longer a subscribed user.", ephemeral=True)
+    await interaction.response.send_message(
+        "You are no longer a subscribed user.", ephemeral=True
+    )
 
 
 @bot.event
