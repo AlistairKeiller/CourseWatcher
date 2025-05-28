@@ -87,14 +87,26 @@ def format_product_diff_message(
     return f"{site_name_md}\n" + "\n".join(parts)
 
 
-async def fetch_products_from_site(site_config: Dict[str, Any], page: Page) -> Set[str]:
-    """Fetches product names and links from a site using a Playwright page."""
+async def fetch_products_from_site(
+    site_config: Dict[str, Any], page: Page
+) -> Optional[Set[str]]:
+    """Fetches product names and links from a site using a Playwright page.
+
+    Returns a set of product strings or None if an error occurred.
+    """
     products: Set[str] = set()
     try:
         await page.goto(site_config["url"], timeout=60000)
+        await page.wait_for_selector(
+            site_config["product_card_selector"], timeout=30000
+        )
+
         product_cards = await page.query_selector_all(
             site_config["product_card_selector"]
         )
+        if not product_cards:
+            return None
+
         for card in product_cards:
             if oos_filter := site_config.get("out_of_stock_filter"):
                 if await card.query_selector(oos_filter):
@@ -106,12 +118,21 @@ async def fetch_products_from_site(site_config: Dict[str, Any], page: Page) -> S
             if name_elem := await card.query_selector(site_config["name_selector"]):
                 if name := await name_elem.text_content():
                     products.add(f"[{name.strip()}]({href})" if href else name.strip())
+                else:
+                    logger.warning(
+                        f"Found name element but no text content for a product on {site_config['site_name_md']}"
+                    )
+            else:
+                logger.warning(
+                    f"Name selector {site_config['name_selector']} not found for a card on {site_config['site_name_md']}"
+                )
+        return products
     except Exception as e:
         logger.error(
             f"Error fetching products from {site_config['site_name_md']}: {e}",
             exc_info=True,
         )
-    return products
+        return None
 
 
 async def check_all_sites_task():
@@ -125,6 +146,13 @@ async def check_all_sites_task():
         while True:
             for site_key, config in SITES_CONFIG.items():
                 fetched_products = await fetch_products_from_site(config, page)
+
+                if fetched_products is None:
+                    logger.warning(
+                        f"Skipping update for {config['site_name_md']} due to fetch error."
+                    )
+                    continue
+
                 if fetched_products == config["current_products"]:
                     continue
                 added = fetched_products - config["current_products"]
