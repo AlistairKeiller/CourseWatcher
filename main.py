@@ -77,9 +77,7 @@ def format_product_diff_message(
     return f"{site_name_md}\n" + "\n".join(parts)
 
 
-async def fetch_products_from_site(
-    site_config: Dict[str, Any], page: Page
-) -> Set[str]:
+async def fetch_products_from_site(site_config: Dict[str, Any], page: Page) -> Set[str]:
     """Fetches product names and links from a given site configuration using a shared page."""
     new_products: Set[str] = set()
     try:
@@ -115,7 +113,8 @@ async def check_all_sites_task():
     global browser
     if browser is None:
         raise RuntimeError(
-            "Browser is not initialized. Ensure on_ready is called first.")
+            "Browser is not initialized. Ensure on_ready is called first."
+        )
     page = await browser.new_page()
     try:
         while True:
@@ -132,7 +131,8 @@ async def check_all_sites_task():
 
                     if not subscribed_user_ids:
                         print(
-                            f"No users subscribed, not sending notifications for {site_key}.")
+                            f"No users subscribed, not sending notifications for {site_key}."
+                        )
                         continue
 
                     message = format_product_diff_message(
@@ -144,7 +144,8 @@ async def check_all_sites_task():
                             await user.send(message)
                         except discord.NotFound:
                             print(
-                                f"User {user_id} not found. Removing from subscriptions.")
+                                f"User {user_id} not found. Removing from subscriptions."
+                            )
                             subscribed_user_ids.discard(user_id)
                             save_users(subscribed_user_ids)
                         except discord.Forbidden:
@@ -152,11 +153,13 @@ async def check_all_sites_task():
                                 f"Cannot send DM to user {user_id}. They might have DMs disabled or blocked the bot."
                             )
                         except Exception as e:
-                            print(
-                                f"Error sending message to user {user_id}: {e}")
+                            print(f"Error sending message to user {user_id}: {e}")
                 else:
                     print(f"No product changes for {site_key}.")
-            await discord.utils.sleep_until(discord.utils.utcnow() + datetime.timedelta(seconds=CHECK_INTERVAL_SECONDS))
+            await discord.utils.sleep_until(
+                discord.utils.utcnow()
+                + datetime.timedelta(seconds=CHECK_INTERVAL_SECONDS)
+            )
     finally:
         await page.close()
 
@@ -213,8 +216,6 @@ async def on_ready():
 @bot.event
 async def on_disconnect():
     """Called when the bot disconnects."""
-    global browser
-    global playwright
     print("Bot is disconnecting...")
     if browser:
         await browser.close()
@@ -227,7 +228,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Discord bot for product stock monitoring."
     )
-    parser.add_argument("--token", type=str, required=True,
-                        help="Discord bot token.")
+    parser.add_argument("--token", type=str, required=True, help="Discord bot token.")
     args = parser.parse_args()
     bot.run(args.token)
