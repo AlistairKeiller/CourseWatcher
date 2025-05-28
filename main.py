@@ -4,7 +4,7 @@ from typing import Set, Dict, Any
 
 import discord
 from discord.ext import commands, tasks
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Browser
 
 USERS_FILE = "users.json"
 CHECK_INTERVAL_SECONDS = 60
@@ -58,6 +58,8 @@ def save_users(user_id_set: Set[int]):
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
 subscribed_user_ids: Set[int] = load_users()
+browser = None
+playwright = None
 
 
 def format_product_diff_message(
@@ -74,50 +76,50 @@ def format_product_diff_message(
     return f"{site_name_md}\n" + "\n".join(parts)
 
 
-async def fetch_products_from_site(site_config: Dict[str, Any]) -> Set[str]:
+async def fetch_products_from_site(
+    site_config: Dict[str, Any], browser: Browser
+) -> Set[str]:
     """Fetches product names and links from a given site configuration."""
     new_products: Set[str] = set()
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
-        try:
-            await page.goto(site_config["url"], timeout=30000)
-            product_cards = await page.query_selector_all(
-                site_config["product_card_selector"]
-            )
-            for card in product_cards:
-                if site_config.get("out_of_stock_filter"):
-                    out_of_stock = await card.query_selector(
-                        site_config["out_of_stock_filter"]
-                    )
-                    if out_of_stock:
-                        continue
-                name_elem = await card.query_selector(site_config["name_selector"])
-                href_elem = await card.query_selector(site_config["href_selector"])
-                if name_elem and href_elem:
-                    name = (await name_elem.inner_text() or "").strip()
-                    href = (await href_elem.get_attribute("href") or "").strip()
-                    if href and not href.startswith("http"):
-                        href = site_config["base_url"] + href
-                    if name:
-                        new_products.add(f"[{name}]({href})" if href else name)
-        except Exception as e:
-            print(
-                f"Error checking site {site_config.get('site_name_md', 'Unknown Site')}: {e}"
-            )
-        finally:
-            await browser.close()
+    page = await browser.new_page()
+    try:
+        await page.goto(site_config["url"], timeout=30000)
+        product_cards = await page.query_selector_all(
+            site_config["product_card_selector"]
+        )
+        for card in product_cards:
+            if site_config.get("out_of_stock_filter"):
+                out_of_stock = await card.query_selector(
+                    site_config["out_of_stock_filter"]
+                )
+                if out_of_stock:
+                    continue
+            name_elem = await card.query_selector(site_config["name_selector"])
+            href_elem = await card.query_selector(site_config["href_selector"])
+            if name_elem and href_elem:
+                name = (await name_elem.inner_text() or "").strip()
+                href = (await href_elem.get_attribute("href") or "").strip()
+                if href and not href.startswith("http"):
+                    href = site_config["base_url"] + href
+                if name:
+                    new_products.add(f"[{name}]({href})" if href else name)
+    except Exception as e:
+        print(
+            f"Error checking site {site_config.get('site_name_md', 'Unknown Site')}: {e}"
+        )
+    finally:
+        await page.close()
     return new_products
 
 
-def create_product_check_task(site_key: str, config: Dict[str, Any]):
+def create_product_check_task(site_key: str, config: Dict[str, Any], browser: Browser):
     """Factory to create a specific product checking task for a site."""
     config["current_products"] = set()
 
     @tasks.loop(seconds=CHECK_INTERVAL_SECONDS)
     async def _check_products_task():
         print(f"Checking products for {site_key}...")
-        fetched_products = await fetch_products_from_site(config)
+        fetched_products = await fetch_products_from_site(config, browser)
 
         prev_products = config["current_products"]
         added = fetched_products - prev_products
@@ -128,8 +130,7 @@ def create_product_check_task(site_key: str, config: Dict[str, Any]):
             config["current_products"] = fetched_products
 
             if not subscribed_user_ids:
-                print(
-                    f"No users subscribed, not sending notifications for {site_key}.")
+                print(f"No users subscribed, not sending notifications for {site_key}.")
                 return
 
             message = format_product_diff_message(
@@ -140,8 +141,7 @@ def create_product_check_task(site_key: str, config: Dict[str, Any]):
                     user = await bot.fetch_user(user_id)
                     await user.send(message)
                 except discord.NotFound:
-                    print(
-                        f"User {user_id} not found. Removing from subscriptions.")
+                    print(f"User {user_id} not found. Removing from subscriptions.")
                     subscribed_user_ids.discard(user_id)
                     save_users(subscribed_user_ids)
                 except discord.Forbidden:
@@ -191,22 +191,39 @@ async def unsubscribe(interaction: discord.Interaction) -> None:
 @bot.event
 async def on_ready():
     """Called when the bot is ready."""
+    global browser
+    global playwright
     print(f"{bot.user} has connected to Discord!")
     await bot.tree.sync()
     print("Command tree synced.")
 
+    playwright = await async_playwright().start()
+    browser = await playwright.chromium.launch(headless=True)
+
     for site_key, config_item in SITES_CONFIG.items():
-        task = create_product_check_task(site_key, config_item)
+        task = create_product_check_task(site_key, config_item, browser)
         task.start()
         print(f"Started product check task for {site_key}.")
     print("All product check tasks started.")
+
+
+@bot.event
+async def on_disconnect():
+    """Called when the bot disconnects."""
+    global browser
+    global playwright
+    print("Bot is disconnecting...")
+    if browser:
+        await browser.close()
+    if playwright:
+        await playwright.stop()
+    print("Browser and Playwright closed.")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Discord bot for product stock monitoring."
     )
-    parser.add_argument("--token", type=str, required=True,
-                        help="Discord bot token.")
+    parser.add_argument("--token", type=str, required=True, help="Discord bot token.")
     args = parser.parse_args()
     bot.run(args.token)
