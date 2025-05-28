@@ -30,6 +30,16 @@ SITES_CONFIG: Dict[str, Dict[str, Any]] = {
         "site_name_md": "[Ippodo US](https://ippodotea.com/collections/matcha)",
         "current_products": set(),
     },
+    "marukyu_koyamaen": {
+        "url": "https://www.marukyu-koyamaen.co.jp/english/shop/products/catalog/matcha",
+        "product_card_selector": "li.instock",
+        "add_to_cart_selector": "a.woocommerce-loop-product__link",
+        "name_selector": "a.woocommerce-loop-product__link",
+        "name_source_attribute": "title",  # Get product name from the 'title' attribute
+        "base_url": "https://www.marukyu-koyamaen.co.jp",
+        "site_name_md": "[Marukyu Koyamaen](https://www.marukyu-koyamaen.co.jp/english/shop/products/catalog/matcha)",
+        "current_products": set(),
+    },
 }
 
 
@@ -81,7 +91,19 @@ async def fetch_products_from_site(site_config: Dict[str, Any]) -> Set[str]:
                 if add_to_cart_button and await add_to_cart_button.is_visible():
                     name_elem = await card.query_selector(site_config["name_selector"])
                     if name_elem:
-                        name = (await name_elem.inner_text() or "").strip()
+                        name = ""
+                        name_attribute_source = site_config.get("name_source_attribute")
+                        if name_attribute_source:
+                            name = (
+                                await name_elem.get_attribute(name_attribute_source)
+                                or ""
+                            ).strip()
+
+                        if (
+                            not name
+                        ):  # Fallback to inner_text if attribute not found or empty
+                            name = (await name_elem.inner_text() or "").strip()
+
                         link_attr = (
                             await name_elem.get_attribute("href") or ""
                         ).strip()
