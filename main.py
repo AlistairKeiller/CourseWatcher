@@ -43,13 +43,20 @@ SITES_CONFIG: Dict[str, Dict[str, Any]] = {
 
 def load_users() -> Set[int]:
     """Loads user IDs from USERS_FILE."""
-    return set(json.loads(USERS_FILE.read_text())) if USERS_FILE.exists() else set()
+    try:
+        return set(json.loads(USERS_FILE.read_text())) if USERS_FILE.exists() else set()
+    except Exception as e:
+        logger.error(f"Error reading users file {USERS_FILE}: {e}")
+        return set()
 
 
 def save_users(user_id_set: Set[int]):
     """Saves user IDs to USERS_FILE."""
     USERS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    USERS_FILE.write_text(json.dumps(list(user_id_set)))
+    try:
+        USERS_FILE.write_text(json.dumps(list(user_id_set)))
+    except Exception as e:
+        logger.error(f"Failed to save user IDs to {USERS_FILE}: {e}", exc_info=True)
 
 
 intents = discord.Intents.default()
@@ -76,14 +83,14 @@ def fetch_products_from_site(
     """
     products: Set[str] = set()
     try:
-        response = session.get(site_config["url"], timeout=30.0)
+        response = session.get(site_config["url"], timeout=10.0)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
 
         product_cards = soup.select(site_config["product_card_selector"])
         if not product_cards:
             logger.warning(
-                f"No product cards found for {site_key} using selector '{site_config['product_card_selector']}'. The page structure might have changed or requires JavaScript."
+                f"No product cards found for {site_key} using selector '{site_config['product_card_selector']}'."
             )
             return set()
 
@@ -166,6 +173,11 @@ async def check_all_sites_task():
                         try:
                             user = await bot.fetch_user(user_id)
                             await user.send(message)
+                        except discord.NotFound:
+                            logger.warning(
+                                f"User with ID {user_id} not found. Removing from subscription."
+                            )
+                            subscribed_user_ids.discard(user_id)
                         except Exception as e:
                             logger.error(
                                 f"Error sending DM to {user_id}: {e}", exc_info=True
