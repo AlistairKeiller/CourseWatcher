@@ -43,12 +43,13 @@ async def check_ippodo_global():
         await page.goto("https://global.ippodo-tea.co.jp/collections/matcha")
         product_cards = await page.query_selector_all("li.m-product-card")
         for card in product_cards:
-            button = await card.query_selector('button:has-text("Add to Cart")')
-            if button:
+            if await card.query_selector('button:has-text("Add to Cart")'):
                 name_elem = await card.query_selector(".m-product-card__name a")
                 if name_elem:
                     name = (await name_elem.inner_text()).strip()
                     link = (await name_elem.get_attribute("href") or "").strip()
+                    if link:
+                        link = "https://global.ippodo-tea.co.jp" + link
                     new_products.add(f"[{name}]({link})" if link else name)
     if new_products != ippodo_global_products:
         ippodo_global_products.clear()
@@ -72,12 +73,13 @@ async def check_ippodo():
         await page.goto("https://ippodotea.com/collections/matcha")
         product_cards = await page.query_selector_all("div.matcha-card")
         for card in product_cards:
-            button = await card.query_selector('button:has-text("Add to bag")')
-            if button:
+            if await card.query_selector('button:has-text("Add to bag")'):
                 name_elem = await card.query_selector(".product-title a")
                 if name_elem:
                     name = (await name_elem.inner_text()).strip()
                     link = (await name_elem.get_attribute("href") or "").strip()
+                    if link:
+                        link = "https://ippodotea.com" + link
                     new_products.add(f"[{name}]({link})" if link else name)
     if new_products != ippodo_products:
         ippodo_products.clear()
@@ -114,6 +116,7 @@ async def unsubscribe(interaction: discord.Interaction) -> None:
 async def on_ready():
     await bot.tree.sync()
     check_ippodo_global.start()
+    check_ippodo.start()
 
 
 if __name__ == "__main__":
