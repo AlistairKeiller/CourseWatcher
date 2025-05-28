@@ -1,10 +1,11 @@
 import argparse
+import datetime
 import json
 from typing import Set, Dict, Any
 
 import discord
-from discord.ext import commands, tasks
-from playwright.async_api import async_playwright, Browser
+from discord.ext import commands
+from playwright.async_api import Playwright, async_playwright, Browser, Page
 
 USERS_FILE = "users.json"
 CHECK_INTERVAL_SECONDS = 60
@@ -58,8 +59,8 @@ def save_users(user_id_set: Set[int]):
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
 subscribed_user_ids: Set[int] = load_users()
-browser = None
-playwright = None
+browser: Browser | None = None
+playwright: Playwright | None = None
 
 
 def format_product_diff_message(
@@ -77,11 +78,10 @@ def format_product_diff_message(
 
 
 async def fetch_products_from_site(
-    site_config: Dict[str, Any], browser: Browser
+    site_config: Dict[str, Any], page: Page
 ) -> Set[str]:
-    """Fetches product names and links from a given site configuration."""
+    """Fetches product names and links from a given site configuration using a shared page."""
     new_products: Set[str] = set()
-    page = await browser.new_page()
     try:
         await page.goto(site_config["url"], timeout=60000)
         product_cards = await page.query_selector_all(
@@ -107,53 +107,58 @@ async def fetch_products_from_site(
         print(
             f"Error checking site {site_config.get('site_name_md', 'Unknown Site')}: {e}"
         )
-    finally:
-        await page.close()
     return new_products
 
 
-def create_product_check_task(site_key: str, config: Dict[str, Any], browser: Browser):
-    """Factory to create a specific product checking task for a site."""
-    config["current_products"] = set()
+async def check_all_sites_task():
+    """Checks all sites sequentially using a single page."""
+    global browser
+    if browser is None:
+        raise RuntimeError(
+            "Browser is not initialized. Ensure on_ready is called first.")
+    page = await browser.new_page()
+    try:
+        while True:
+            for site_key, config in SITES_CONFIG.items():
+                print(f"Checking products for {site_key}...")
+                fetched_products = await fetch_products_from_site(config, page)
+                prev_products = config.get("current_products", set())
+                added = fetched_products - prev_products
+                removed = prev_products - fetched_products
 
-    @tasks.loop(seconds=CHECK_INTERVAL_SECONDS)
-    async def _check_products_task():
-        print(f"Checking products for {site_key}...")
-        fetched_products = await fetch_products_from_site(config, browser)
+                if added or removed:
+                    print(f"Product change detected for {site_key}.")
+                    config["current_products"] = fetched_products
 
-        prev_products = config["current_products"]
-        added = fetched_products - prev_products
-        removed = prev_products - fetched_products
+                    if not subscribed_user_ids:
+                        print(
+                            f"No users subscribed, not sending notifications for {site_key}.")
+                        continue
 
-        if added or removed:
-            print(f"Product change detected for {site_key}.")
-            config["current_products"] = fetched_products
-
-            if not subscribed_user_ids:
-                print(f"No users subscribed, not sending notifications for {site_key}.")
-                return
-
-            message = format_product_diff_message(
-                config["site_name_md"], added, removed
-            )
-            for user_id in subscribed_user_ids:
-                try:
-                    user = await bot.fetch_user(user_id)
-                    await user.send(message)
-                except discord.NotFound:
-                    print(f"User {user_id} not found. Removing from subscriptions.")
-                    subscribed_user_ids.discard(user_id)
-                    save_users(subscribed_user_ids)
-                except discord.Forbidden:
-                    print(
-                        f"Cannot send DM to user {user_id}. They might have DMs disabled or blocked the bot."
+                    message = format_product_diff_message(
+                        config["site_name_md"], added, removed
                     )
-                except Exception as e:
-                    print(f"Error sending message to user {user_id}: {e}")
-        else:
-            print(f"No product changes for {site_key}.")
-
-    return _check_products_task
+                    for user_id in subscribed_user_ids:
+                        try:
+                            user = await bot.fetch_user(user_id)
+                            await user.send(message)
+                        except discord.NotFound:
+                            print(
+                                f"User {user_id} not found. Removing from subscriptions.")
+                            subscribed_user_ids.discard(user_id)
+                            save_users(subscribed_user_ids)
+                        except discord.Forbidden:
+                            print(
+                                f"Cannot send DM to user {user_id}. They might have DMs disabled or blocked the bot."
+                            )
+                        except Exception as e:
+                            print(
+                                f"Error sending message to user {user_id}: {e}")
+                else:
+                    print(f"No product changes for {site_key}.")
+            await discord.utils.sleep_until(discord.utils.utcnow() + datetime.timedelta(seconds=CHECK_INTERVAL_SECONDS))
+    finally:
+        await page.close()
 
 
 @bot.tree.command(name="subscribe", description="Subscribe to product notifications.")
@@ -200,11 +205,9 @@ async def on_ready():
     playwright = await async_playwright().start()
     browser = await playwright.chromium.launch(headless=True)
 
-    for site_key, config_item in SITES_CONFIG.items():
-        task = create_product_check_task(site_key, config_item, browser)
-        task.start()
-        print(f"Started product check task for {site_key}.")
-    print("All product check tasks started.")
+    # Start the single sequential check task
+    bot.loop.create_task(check_all_sites_task())
+    print("Started sequential product check task for all sites.")
 
 
 @bot.event
@@ -224,6 +227,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Discord bot for product stock monitoring."
     )
-    parser.add_argument("--token", type=str, required=True, help="Discord bot token.")
+    parser.add_argument("--token", type=str, required=True,
+                        help="Discord bot token.")
     args = parser.parse_args()
     bot.run(args.token)
