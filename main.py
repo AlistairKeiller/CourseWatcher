@@ -19,24 +19,24 @@ SITES_CONFIG: Dict[str, Dict[str, Any]] = {
         "base_url": "https://global.ippodo-tea.co.jp",
         "site_name_md": "[Ippodo Global](https://global.ippodo-tea.co.jp/collections/matcha)",
     },
-    "ippodo_us": {
-        "url": "https://ippodotea.com/collections/matcha",
-        "product_card_selector": "div.matcha-card",
-        "out_of_stock_filter": "button.btn-unavailable",
-        "name_selector": ".product-title a",
-        "href_selector": ".product-title a",
-        "base_url": "https://ippodotea.com",
-        "site_name_md": "[Ippodo US](https://ippodotea.com/collections/matcha)",
-    },
-    "marukyu_koyamaen": {
-        "url": "https://www.marukyu-koyamaen.co.jp/english/shop/products/catalog/matcha",
-        "product_card_selector": "li.instock",
-        "out_of_stock_filter": None,
-        "name_selector": ".product-name h4",
-        "href_selector": "a.woocommerce-loop-product__link",
-        "base_url": "https://www.marukyu-koyamaen.co.jp",
-        "site_name_md": "[Marukyu Koyamaen](https://www.marukyu-koyamaen.co.jp/english/shop/products/catalog/matcha)",
-    },
+    # "ippodo_us": {
+    #     "url": "https://ippodotea.com/collections/matcha",
+    #     "product_card_selector": "div.matcha-card",
+    #     "out_of_stock_filter": "button.btn-unavailable",
+    #     "name_selector": ".product-title a",
+    #     "href_selector": ".product-title a",
+    #     "base_url": "https://ippodotea.com",
+    #     "site_name_md": "[Ippodo US](https://ippodotea.com/collections/matcha)",
+    # },
+    # "marukyu_koyamaen": {
+    #     "url": "https://www.marukyu-koyamaen.co.jp/english/shop/products/catalog/matcha",
+    #     "product_card_selector": "li.instock",
+    #     "out_of_stock_filter": None,
+    #     "name_selector": ".product-name h4",
+    #     "href_selector": "a.woocommerce-loop-product__link",
+    #     "base_url": "https://www.marukyu-koyamaen.co.jp",
+    #     "site_name_md": "[Marukyu Koyamaen](https://www.marukyu-koyamaen.co.jp/english/shop/products/catalog/matcha)",
+    # },
 }
 
 
