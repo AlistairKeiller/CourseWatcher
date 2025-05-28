@@ -81,7 +81,7 @@ async def fetch_products_from_site(site_config: Dict[str, Any]) -> Set[str]:
         browser = await p.chromium.launch(headless=True)
         page = await browser.new_page()
         try:
-            await page.goto(site_config["url"], timeout=30000)
+            await page.goto(site_config["url"])
             product_cards = await page.query_selector_all(
                 site_config["product_card_selector"]
             )
