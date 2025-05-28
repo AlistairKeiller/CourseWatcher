@@ -57,9 +57,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 subscribed_user_ids: Set[int] = load_users()
 
 
-def format_product_diff_message(
-    site_name_md: str, added: Set[str], removed: Set[str]
-) -> str:
+def format_product_diff_message(added: Set[str], removed: Set[str]) -> str:
     """Formats a message showing product stock changes."""
     parts: list[str] = []
     if added:
@@ -70,7 +68,7 @@ def format_product_diff_message(
 
 
 def fetch_products_from_site(
-    site_config: Dict[str, Any], session: requests.Session
+    site_key: str, site_config: Dict[str, Any], session: requests.Session
 ) -> Optional[Set[str]]:
     """Fetches product names and links from a site using requests and BeautifulSoup.
 
@@ -85,7 +83,7 @@ def fetch_products_from_site(
         product_cards = soup.select(site_config["product_card_selector"])
         if not product_cards:
             logger.warning(
-                f"No product cards found for {site_config['site_name_md']} using selector '{site_config['product_card_selector']}'. The page structure might have changed or requires JavaScript."
+                f"No product cards found for {site_key} using selector '{site_config['product_card_selector']}'. The page structure might have changed or requires JavaScript."
             )
             return set()
 
@@ -106,25 +104,25 @@ def fetch_products_from_site(
                     products.add(f"[{name}]({href})" if href else name)
                 else:
                     logger.warning(
-                        f"Found name element but no text content for a product on {site_config['site_name_md']}"
+                        f"Found name element but no text content for a product on {site_key}"
                     )
             else:
                 logger.warning(
-                    f"Name selector '{site_config['name_selector']}' not found for a card on {site_config['site_name_md']}"
+                    f"Name selector '{site_config['name_selector']}' not found for a card on {site_key}"
                 )
         return products
 
     except requests.exceptions.HTTPError as e:
         logger.error(
-            f"HTTP error {e.response.status_code} fetching products from {site_config['site_name_md']}: {e.request.url if e.request else site_config['url']}",
+            f"HTTP error {e.response.status_code} fetching products from {site_key}: {e.request.url if e.request else site_config['url']}",
         )
     except requests.exceptions.RequestException as e:
         logger.error(
-            f"Request error fetching products from {site_config['site_name_md']}: {e}",
+            f"Request error fetching products from {site_key}: {e}",
         )
     except Exception as e:
         logger.error(
-            f"Error parsing products from {site_config['site_name_md']}: {e}",
+            f"Error parsing products from {site_key}: {e}",
             exc_info=True,
         )
     return None
@@ -143,7 +141,7 @@ async def check_all_sites_task():
                     logger.info(f"Checking site: {site_key}")
 
                     fetched_products = await bot.loop.run_in_executor(
-                        None, fetch_products_from_site, config, session
+                        None, fetch_products_from_site, site_key, config, session
                     )
 
                     if fetched_products is None:
@@ -163,9 +161,7 @@ async def check_all_sites_task():
                     logger.info(
                         f"Changes detected for {site_key}. Added: {len(added)}, Removed: {len(removed)}"
                     )
-                    message = format_product_diff_message(
-                        config["site_name_md"], added, removed
-                    )
+                    message = format_product_diff_message(added, removed)
                     for user_id in subscribed_user_ids:
                         try:
                             user = await bot.fetch_user(user_id)
