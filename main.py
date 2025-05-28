@@ -3,13 +3,13 @@ import datetime
 import json
 import logging
 from pathlib import Path
-from typing import Set, Dict, Any, Optional
+from typing import Any, Dict, Optional, Set
 from urllib.parse import urljoin
 
 import discord
-from discord.ext import commands
-import httpx
+import requests
 from bs4 import BeautifulSoup
+from discord.ext import commands
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -27,17 +27,6 @@ SITES_CONFIG: Dict[str, Dict[str, Any]] = {
         "name_selector": ".m-product-card__name a",
         "href_selector": ".m-product-card__name a",
         "base_url": "https://global.ippodo-tea.co.jp",
-        "site_name_md": "[Ippodo Global](https://global.ippodo-tea.co.jp/collections/matcha)",
-        "current_products": set(),
-    },
-    "ippodo_us": {
-        "url": "https://ippodotea.com/collections/matcha",
-        "product_card_selector": "div.matcha-card",
-        "out_of_stock_filter": "button.btn-unavailable",
-        "name_selector": ".product-title a",
-        "href_selector": ".product-title a",
-        "base_url": "https://ippodotea.com",
-        "site_name_md": "[Ippodo US](https://ippodotea.com/collections/matcha)",
         "current_products": set(),
     },
     "marukyu_koyamaen": {
@@ -47,7 +36,6 @@ SITES_CONFIG: Dict[str, Dict[str, Any]] = {
         "name_selector": ".product-name h4",
         "href_selector": "a.woocommerce-loop-product__link",
         "base_url": "https://www.marukyu-koyamaen.co.jp",
-        "site_name_md": "[Marukyu Koyamaen](https://www.marukyu-koyamaen.co.jp/english/shop/products/catalog/matcha)",
         "current_products": set(),
     },
 }
@@ -78,19 +66,19 @@ def format_product_diff_message(
         parts.append(f"🟢 Now in stock: {', '.join(sorted(added))}")
     if removed:
         parts.append(f"🔴 Out of stock: {', '.join(sorted(removed))}")
-    return f"{site_name_md}\n" + "\n".join(parts)
+    return "\n".join(parts)
 
 
-async def fetch_products_from_site(
-    site_config: Dict[str, Any], client: httpx.AsyncClient
+def fetch_products_from_site(
+    site_config: Dict[str, Any], session: requests.Session
 ) -> Optional[Set[str]]:
-    """Fetches product names and links from a site using httpx and BeautifulSoup.
+    """Fetches product names and links from a site using requests and BeautifulSoup.
 
     Returns a set of product strings or None if an error occurred.
     """
     products: Set[str] = set()
     try:
-        response = await client.get(site_config["url"], timeout=30.0)
+        response = session.get(site_config["url"], timeout=30.0)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
 
@@ -109,7 +97,7 @@ async def fetch_products_from_site(
             href = ""
             href_elem = card.select_one(site_config["href_selector"])
             if href_elem and (isinstance(href_value := href_elem.get("href"), str)):
-                href = urljoin(site_config["base_url"], href_value.strip())
+                href = urljoin(site_config["base_url"], href_value)
 
             name_elem = card.select_one(site_config["name_selector"])
             if name_elem:
@@ -125,33 +113,38 @@ async def fetch_products_from_site(
                     f"Name selector '{site_config['name_selector']}' not found for a card on {site_config['site_name_md']}"
                 )
         return products
-    except httpx.HTTPStatusError as e:
+
+    except requests.exceptions.HTTPError as e:
         logger.error(
-            f"HTTP error {e.response.status_code} fetching products from {site_config['site_name_md']}: {e.request.url}",
+            f"HTTP error {e.response.status_code} fetching products from {site_config['site_name_md']}: {e.request.url if e.request else site_config['url']}",
         )
-        return None
-    except httpx.RequestError as e:
+    except requests.exceptions.RequestException as e:
         logger.error(
             f"Request error fetching products from {site_config['site_name_md']}: {e}",
         )
-        return None
     except Exception as e:
         logger.error(
             f"Error parsing products from {site_config['site_name_md']}: {e}",
             exc_info=True,
         )
-        return None
+    return None
 
 
 async def check_all_sites_task():
     """Periodically checks all configured sites for product stock changes."""
-    headers = {"User-Agent": "DiscordProductNotifierBot/1.0 (Python/httpx)"}
-    async with httpx.AsyncClient(headers=headers, follow_redirects=True) as client:
+    with requests.Session() as session:
+        session.headers.update(
+            {"User-Agent": "DiscordProductNotifierBot/1.0 (Python/requests)"}
+        )
+
         try:
             while True:
                 for site_key, config in SITES_CONFIG.items():
                     logger.info(f"Checking site: {site_key}")
-                    fetched_products = await fetch_products_from_site(config, client)
+
+                    fetched_products = await bot.loop.run_in_executor(
+                        None, fetch_products_from_site, config, session
+                    )
 
                     if fetched_products is None:
                         logger.warning(
@@ -167,23 +160,20 @@ async def check_all_sites_task():
                     removed = config["current_products"] - fetched_products
                     config["current_products"] = fetched_products
 
-                    if added or removed:
-                        logger.info(
-                            f"Changes detected for {site_key}. Added: {len(added)}, Removed: {len(removed)}"
-                        )
-                        message = format_product_diff_message(
-                            config["site_name_md"], added, removed
-                        )
-                        for user_id in subscribed_user_ids:
-                            try:
-                                user = await bot.fetch_user(user_id)
-                                await user.send(message)
-                            except Exception as e:
-                                logger.error(
-                                    f"Error sending DM to {user_id}: {e}", exc_info=True
-                                )
-                    else:
-                        logger.info(f"No effective changes for {site_key} after diff.")
+                    logger.info(
+                        f"Changes detected for {site_key}. Added: {len(added)}, Removed: {len(removed)}"
+                    )
+                    message = format_product_diff_message(
+                        config["site_name_md"], added, removed
+                    )
+                    for user_id in subscribed_user_ids:
+                        try:
+                            user = await bot.fetch_user(user_id)
+                            await user.send(message)
+                        except Exception as e:
+                            logger.error(
+                                f"Error sending DM to {user_id}: {e}", exc_info=True
+                            )
 
                 await discord.utils.sleep_until(
                     discord.utils.utcnow()
