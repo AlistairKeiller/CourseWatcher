@@ -19,24 +19,24 @@ SITES_CONFIG: Dict[str, Dict[str, Any]] = {
         "base_url": "https://global.ippodo-tea.co.jp",
         "site_name_md": "[Ippodo Global](https://global.ippodo-tea.co.jp/collections/matcha)",
     },
-    # "ippodo_us": {
-    #     "url": "https://ippodotea.com/collections/matcha",
-    #     "product_card_selector": "div.matcha-card",
-    #     "out_of_stock_filter": "button.btn-unavailable",
-    #     "name_selector": ".product-title a",
-    #     "href_selector": ".product-title a",
-    #     "base_url": "https://ippodotea.com",
-    #     "site_name_md": "[Ippodo US](https://ippodotea.com/collections/matcha)",
-    # },
-    # "marukyu_koyamaen": {
-    #     "url": "https://www.marukyu-koyamaen.co.jp/english/shop/products/catalog/matcha",
-    #     "product_card_selector": "li.instock",
-    #     "out_of_stock_filter": None,
-    #     "name_selector": ".product-name h4",
-    #     "href_selector": "a.woocommerce-loop-product__link",
-    #     "base_url": "https://www.marukyu-koyamaen.co.jp",
-    #     "site_name_md": "[Marukyu Koyamaen](https://www.marukyu-koyamaen.co.jp/english/shop/products/catalog/matcha)",
-    # },
+    "ippodo_us": {
+        "url": "https://ippodotea.com/collections/matcha",
+        "product_card_selector": "div.matcha-card",
+        "out_of_stock_filter": "button.btn-unavailable",
+        "name_selector": ".product-title a",
+        "href_selector": ".product-title a",
+        "base_url": "https://ippodotea.com",
+        "site_name_md": "[Ippodo US](https://ippodotea.com/collections/matcha)",
+    },
+    "marukyu_koyamaen": {
+        "url": "https://www.marukyu-koyamaen.co.jp/english/shop/products/catalog/matcha",
+        "product_card_selector": "li.instock",
+        "out_of_stock_filter": None,
+        "name_selector": ".product-name h4",
+        "href_selector": "a.woocommerce-loop-product__link",
+        "base_url": "https://www.marukyu-koyamaen.co.jp",
+        "site_name_md": "[Marukyu Koyamaen](https://www.marukyu-koyamaen.co.jp/english/shop/products/catalog/matcha)",
+    },
 }
 
 
@@ -81,7 +81,7 @@ async def fetch_products_from_site(site_config: Dict[str, Any]) -> Set[str]:
         browser = await p.chromium.launch(headless=True)
         page = await browser.new_page()
         try:
-            await page.goto(site_config["url"])
+            await page.goto(site_config["url"], timeout=30000)
             product_cards = await page.query_selector_all(
                 site_config["product_card_selector"]
             )
@@ -128,7 +128,8 @@ def create_product_check_task(site_key: str, config: Dict[str, Any]):
             config["current_products"] = fetched_products
 
             if not subscribed_user_ids:
-                print(f"No users subscribed, not sending notifications for {site_key}.")
+                print(
+                    f"No users subscribed, not sending notifications for {site_key}.")
                 return
 
             message = format_product_diff_message(
@@ -139,7 +140,8 @@ def create_product_check_task(site_key: str, config: Dict[str, Any]):
                     user = await bot.fetch_user(user_id)
                     await user.send(message)
                 except discord.NotFound:
-                    print(f"User {user_id} not found. Removing from subscriptions.")
+                    print(
+                        f"User {user_id} not found. Removing from subscriptions.")
                     subscribed_user_ids.discard(user_id)
                     save_users(subscribed_user_ids)
                 except discord.Forbidden:
@@ -204,6 +206,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Discord bot for product stock monitoring."
     )
-    parser.add_argument("--token", type=str, required=True, help="Discord bot token.")
+    parser.add_argument("--token", type=str, required=True,
+                        help="Discord bot token.")
     args = parser.parse_args()
     bot.run(args.token)
