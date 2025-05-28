@@ -8,12 +8,8 @@ from urllib.parse import urljoin
 
 import discord
 from discord.ext import commands
-from playwright.async_api import (
-    Playwright,
-    async_playwright,
-    Browser,
-    Page,
-)
+import httpx
+from bs4 import BeautifulSoup
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -71,8 +67,6 @@ def save_users(user_id_set: Set[int]):
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
 subscribed_user_ids: Set[int] = load_users()
-browser: Optional[Browser] = None
-playwright: Optional[Playwright] = None
 
 
 def format_product_diff_message(
@@ -88,48 +82,62 @@ def format_product_diff_message(
 
 
 async def fetch_products_from_site(
-    site_config: Dict[str, Any], page: Page
+    site_config: Dict[str, Any], client: httpx.AsyncClient
 ) -> Optional[Set[str]]:
-    """Fetches product names and links from a site using a Playwright page.
+    """Fetches product names and links from a site using httpx and BeautifulSoup.
 
     Returns a set of product strings or None if an error occurred.
     """
     products: Set[str] = set()
     try:
-        await page.goto(site_config["url"], timeout=60000)
-        await page.wait_for_selector(
-            site_config["product_card_selector"], timeout=30000
-        )
+        response = await client.get(site_config["url"], timeout=30.0)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
 
-        product_cards = await page.query_selector_all(
-            site_config["product_card_selector"]
-        )
+        product_cards = soup.select(site_config["product_card_selector"])
         if not product_cards:
-            return None
+            logger.warning(
+                f"No product cards found for {site_config['site_name_md']} using selector '{site_config['product_card_selector']}'. The page structure might have changed or requires JavaScript."
+            )
+            return set()
 
         for card in product_cards:
             if oos_filter := site_config.get("out_of_stock_filter"):
-                if await card.query_selector(oos_filter):
+                if card.select_one(oos_filter):
                     continue
+
             href = ""
-            if href_elem := await card.query_selector(site_config["href_selector"]):
-                if href_attr := await href_elem.get_attribute("href"):
-                    href = urljoin(site_config["base_url"], href_attr.strip())
-            if name_elem := await card.query_selector(site_config["name_selector"]):
-                if name := await name_elem.text_content():
-                    products.add(f"[{name.strip()}]({href})" if href else name.strip())
+            href_elem = card.select_one(site_config["href_selector"])
+            if href_elem and (isinstance(href_value := href_elem.get("href"), str)):
+                href = urljoin(site_config["base_url"], href_value.strip())
+
+            name_elem = card.select_one(site_config["name_selector"])
+            if name_elem:
+                name = name_elem.get_text(strip=True)
+                if name:
+                    products.add(f"[{name}]({href})" if href else name)
                 else:
                     logger.warning(
                         f"Found name element but no text content for a product on {site_config['site_name_md']}"
                     )
             else:
                 logger.warning(
-                    f"Name selector {site_config['name_selector']} not found for a card on {site_config['site_name_md']}"
+                    f"Name selector '{site_config['name_selector']}' not found for a card on {site_config['site_name_md']}"
                 )
         return products
+    except httpx.HTTPStatusError as e:
+        logger.error(
+            f"HTTP error {e.response.status_code} fetching products from {site_config['site_name_md']}: {e.request.url}",
+        )
+        return None
+    except httpx.RequestError as e:
+        logger.error(
+            f"Request error fetching products from {site_config['site_name_md']}: {e}",
+        )
+        return None
     except Exception as e:
         logger.error(
-            f"Error fetching products from {site_config['site_name_md']}: {e}",
+            f"Error parsing products from {site_config['site_name_md']}: {e}",
             exc_info=True,
         )
         return None
@@ -137,46 +145,52 @@ async def fetch_products_from_site(
 
 async def check_all_sites_task():
     """Periodically checks all configured sites for product stock changes."""
-    if not browser:
-        logger.error("Browser not initialized. Aborting site check task.")
-        return
+    headers = {"User-Agent": "DiscordProductNotifierBot/1.0 (Python/httpx)"}
+    async with httpx.AsyncClient(headers=headers, follow_redirects=True) as client:
+        try:
+            while True:
+                for site_key, config in SITES_CONFIG.items():
+                    logger.info(f"Checking site: {site_key}")
+                    fetched_products = await fetch_products_from_site(config, client)
 
-    page = await browser.new_page()
-    try:
-        while True:
-            for site_key, config in SITES_CONFIG.items():
-                fetched_products = await fetch_products_from_site(config, page)
-
-                if fetched_products is None:
-                    logger.warning(
-                        f"Skipping update for {config['site_name_md']} due to fetch error."
-                    )
-                    continue
-
-                if fetched_products == config["current_products"]:
-                    continue
-                added = fetched_products - config["current_products"]
-                removed = config["current_products"] - fetched_products
-                config["current_products"] = fetched_products
-                message = format_product_diff_message(
-                    config["site_name_md"], added, removed
-                )
-                for user_id in subscribed_user_ids:
-                    try:
-                        user = await bot.fetch_user(user_id)
-                        await user.send(message)
-                    except Exception as e:
-                        logger.error(
-                            f"Error sending DM to {user_id}: {e}", exc_info=True
+                    if fetched_products is None:
+                        logger.warning(
+                            f"Skipping update for {site_key} due to fetch/parse error."
                         )
-            await discord.utils.sleep_until(
-                discord.utils.utcnow()
-                + datetime.timedelta(seconds=CHECK_INTERVAL_SECONDS)
-            )
-    except Exception as e:
-        logger.error(f"Error in site check task: {e}", exc_info=True)
-    finally:
-        await page.close()
+                        continue
+
+                    if fetched_products == config["current_products"]:
+                        logger.info(f"No changes for {site_key}.")
+                        continue
+
+                    added = fetched_products - config["current_products"]
+                    removed = config["current_products"] - fetched_products
+                    config["current_products"] = fetched_products
+
+                    if added or removed:
+                        logger.info(
+                            f"Changes detected for {site_key}. Added: {len(added)}, Removed: {len(removed)}"
+                        )
+                        message = format_product_diff_message(
+                            config["site_name_md"], added, removed
+                        )
+                        for user_id in subscribed_user_ids:
+                            try:
+                                user = await bot.fetch_user(user_id)
+                                await user.send(message)
+                            except Exception as e:
+                                logger.error(
+                                    f"Error sending DM to {user_id}: {e}", exc_info=True
+                                )
+                    else:
+                        logger.info(f"No effective changes for {site_key} after diff.")
+
+                await discord.utils.sleep_until(
+                    discord.utils.utcnow()
+                    + datetime.timedelta(seconds=CHECK_INTERVAL_SECONDS)
+                )
+        except Exception as e:
+            logger.error(f"Critical error in site check task: {e}", exc_info=True)
 
 
 @bot.tree.command(name="subscribe", description="Subscribe to product notifications.")
@@ -214,23 +228,14 @@ async def unsubscribe(interaction: discord.Interaction):
 @bot.event
 async def on_ready():
     """Called when the bot is ready and connected."""
-    global browser, playwright
     try:
+        logger.info(f"{bot.user} has connected to Discord!")
         await bot.tree.sync()
-        playwright = await async_playwright().start()
-        browser = await playwright.chromium.launch(headless=True)
+        logger.info("Commands synced.")
         bot.loop.create_task(check_all_sites_task())
+        logger.info("Site checking task started.")
     except Exception as e:
         logger.error(f"Error during on_ready: {e}", exc_info=True)
-
-
-@bot.event
-async def on_disconnect():
-    """Called when the bot disconnects."""
-    if browser:
-        await browser.close()
-    if playwright:
-        await playwright.stop()
 
 
 if __name__ == "__main__":
